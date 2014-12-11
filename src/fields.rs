@@ -36,15 +36,7 @@ impl<F: Field> PartialEq for FieldElem<F> {
         if self.limbs.bits() != other.limbs.bits() {
             false
         } else {
-            let one: BigUint = One::one();
-            let m = self.limbs.bits() - 1;
-            let mut ok = true;
-
-            for i in range(0u, m) {
-                ok &= (self.limbs & (one << i)) ^ (other.limbs & (one << i)) != (one << i);
-            }
-
-            ok
+            (self.limbs ^ other.limbs).bits() == 0
         }
     }
 }
@@ -87,7 +79,7 @@ impl<F: Field> Div<FieldElem<F>, FieldElem<F>> for FieldElem<F> {
 impl<F: Field> Neg<FieldElem<F>> for FieldElem<F> {
     fn neg(&self) -> FieldElem<F> {
         FieldElem {
-            limbs: (self.field.modulus() - self.limbs) % self.field.modulus(),
+            limbs: self.field.modulus() - (self.limbs % self.field.modulus()),
             field: self.field.clone()
         }
     }
@@ -161,10 +153,17 @@ impl<F: Field> FieldElem<F> {
         }
     }
 
-    // To do:  Find a way to actually implement Zero instead of mimic it.
+    // To do:  Find a way to actually implement Zero and One instead of mimic it.
     pub fn zero(&self) -> FieldElem<F> {
         FieldElem {
             limbs: 0i.to_biguint().unwrap(),
+            field: self.field.clone()
+        }
+    }
+
+    pub fn one(&self) -> FieldElem<F> {
+        FieldElem {
+            limbs: 1i.to_biguint().unwrap(),
             field: self.field.clone()
         }
     }
@@ -183,7 +182,7 @@ impl<F: Field> fmt::Show for FieldElem<F> {
 // Implementations of specific fields.
 // -------------------------------------------------------------------------
 #[deriving(Clone)]
-pub struct P192;
+pub struct P192; // To Do:  Use a reduce function instead.  Look into faster ways to compute modulo
 impl Field for P192 {
     fn modulus(&self) -> BigUint {
         FromStrRadix::from_str_radix("6277101735386680763835789423207666416083908700390324961279", 10).unwrap()
