@@ -1,8 +1,10 @@
 [package]
 
 name = "ecc"
+description = "An elliptic curve arithmetic and cryptography library."
 version = "0.0.1"
 authors = ["Brendan Mc. <brendanmcmillion@gmail.com>"]
+license = "MIT"
 
 [dependencies.num]
 version = "0.0.5"
