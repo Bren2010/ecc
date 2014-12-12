@@ -3,7 +3,7 @@ use std::num::FromStrRadix;
 use num::{BigUint, Zero, One};
 use num::bigint::ToBigUint;
 
-use fields::{Field, FieldElem, P192};
+use fields::{Field, FieldElem, P192, P521};
 
 #[allow(non_snake_case)]
 pub trait Curve<F: Field>: Clone { // To do:  Implement binary curves.
@@ -294,15 +294,8 @@ impl<C: Curve<F>, F: Field> JacobianPoint<C, F> {
         let v = xy2 + xy2 + xy2 + xy2;
         let w = x2 + x2 + x2 + (self.curve.A() * z4);
 
-        let v2 = FieldElem {
-            limbs: (v.limbs << 1) % self.x.field.modulus(),
-            field: self.x.field.clone()
-        };
-
-        let y84 = FieldElem {
-            limbs: (y4.limbs << 3) % self.x.field.modulus(),
-            field: self.x.field.clone()
-        };
+        let v2 = self.x.field.reduce(v.limbs << 1);
+        let y84 = self.x.field.reduce(y4.limbs << 3);
 
         let xf = (w * w) - v2;
         let yf = (w * (v - xf)) - y84;
@@ -406,18 +399,56 @@ impl C192<P192> {
     pub fn base_point(&self) -> AffinePoint<C192<P192>, P192> { self.G() }
 }
 
+#[deriving(Clone)]
+pub struct C521<P521>;
+impl Curve<P521> for C521<P521> {
+    fn A(&self) -> FieldElem<P521> {
+        -(FieldElem {
+            limbs: 3i.to_biguint().unwrap(),
+            field: P521
+        })
+    }
+
+    fn B(&self) -> FieldElem<P521> {
+        FieldElem {
+            limbs: FromStrRadix::from_str_radix("051953eb9618e1c9a1f929a21a0b68540eea2da725b99b315f3b8b489918ef109e156193951ec7e937b1652c0bd3bb1bf073573df883d2c34f1ef451fd46b503f00", 16).unwrap(),
+            field: P521
+        }
+    }
+
+    fn G(&self) -> AffinePoint<C521<P521>, P521> {
+        AffinePoint {
+            x: FieldElem { // To do:  Implement FromStrRadix for FieldElem
+                limbs: FromStrRadix::from_str_radix("c6858e06b70404e9cd9e3ecb662395b4429c648139053fb521f828af606b4d3dbaa14b5e77efe75928fe1dc127a2ffa8de3348b3c1856a429bf97e7e31c2e5bd66", 16).unwrap(),
+                field: P521
+            },
+            y: FieldElem {
+                limbs: FromStrRadix::from_str_radix("11839296a789a3bc0045c8a5fb42c7d1bd998f54449579b446817afbd17273e662c97ee72995ef42640c550b9013fad0761353c7086a272c24088be94769fd16650", 16).unwrap(),
+                field: P521
+            },
+            curve: C521
+        }
+    }
+}
+
+impl C521<P521> {
+    pub fn base_point(&self) -> AffinePoint<C521<P521>, P521> { self.G() }
+}
 
 // -------------------------------------------------------------------------
 // Unit Tests
 // -------------------------------------------------------------------------
 #[cfg(test)]
-mod test {
+mod tests {
+    extern crate test;
+    use self::test::Bencher;
+
     use std::num::FromStrRadix;
     use num::{BigUint, One};
     use num::bigint::ToBigUint;
 
-    use fields::{FieldElem, P192, R192};
-    use super::{AffinePoint, C192};
+    use fields::{FieldElem, P192, R192, P521};
+    use super::{AffinePoint, C192, C521};
 
     #[test]
     fn accept_valid_point() {
@@ -490,5 +521,34 @@ mod test {
 
         assert_eq!(a.x.limbs, x);
         assert_eq!(a.y.limbs, y);
+    }
+
+    #[test]
+    fn curve521() {
+        let sec: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
+
+        let c: C521<P521> = C521;
+
+        let a = (sec * c.base_point().to_jacobian()).to_affine();
+
+        println!("{}", a)
+    }
+
+    #[bench]
+    fn bench_point_mult_c192(b: &mut Bencher) {
+        let c: C192<P192> = C192;
+        let sec: BigUint = FromStrRadix::from_str_radix("712627dcc76d4df2099af7c8e5", 16).unwrap();
+        let p = c.base_point().to_jacobian();
+
+        b.iter(|| { sec * p })
+    }
+
+    #[bench]
+    fn bench_point_mult_c521(b: &mut Bencher) {
+        let c: C521<P521> = C521;
+        let sec: BigUint = FromStrRadix::from_str_radix("712627dcc76d4df2099af7c8e5", 16).unwrap();
+        let p = c.base_point().to_jacobian();
+
+        b.iter(|| { sec * p })
     }
 }
