@@ -6,3 +6,4 @@ extern crate num;
 
 pub mod fields;
 pub mod curves;
+pub mod crypto;

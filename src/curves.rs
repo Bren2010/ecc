@@ -3,10 +3,15 @@ use std::num::FromStrRadix;
 use num::{BigUint, Zero, One};
 use num::bigint::ToBigUint;
 
-use fields::{Field, FieldElem, P192, P521};
+use fields::{Field, FieldElem, P192, P256, P521};
 
 #[allow(non_snake_case)]
+// Weierstrass curve with large characteristic field.
 pub trait Curve<F: Field>: Clone { // To do:  Implement binary curves.
+    fn AN3(&self) -> bool; // If A = -3
+    fn unserialize(&self, s: &Vec<uint>) -> AffinePoint<Self, F>;
+
+    // Standard curve paraemters:
     fn A(&self) -> FieldElem<F>;
     fn B(&self) -> FieldElem<F>;
     fn G(&self) -> AffinePoint<Self, F>;
@@ -192,6 +197,15 @@ impl<C: Curve<F>, F: Field> AffinePoint<C, F> {
         }
     }
 
+    pub fn serialize(&self) -> Vec<uint> {
+        let mut out: Vec<uint> = self.x.serialize();
+
+        if self.y.limbs < (-self.y).limbs { out.push(0) }
+        else { out.push(1) }
+
+        out
+    }
+
     fn pow(&self, exp: &BigUint) -> AffinePoint<C, F> {
         // Montgomery Ladder.
         let zer: BigUint = Zero::zero();
@@ -280,19 +294,25 @@ impl<C: Curve<F>, F: Field> JacobianPoint<C, F> {
     }
 
     pub fn double(&self) -> JacobianPoint<C, F> {
-        let x2 = self.x * self.x;
-
         let y2 = self.y * self.y;
         let y4 = y2 * y2;
 
         let z2 = self.z * self.z;
-        let z4  = z2 * z2;
 
         let xy2 = self.x * y2;
         let yz = self.y * self.z;
 
         let v = xy2 + xy2 + xy2 + xy2;
-        let w = x2 + x2 + x2 + (self.curve.A() * z4);
+        let w: FieldElem<F>;
+
+        if self.curve.AN3() {
+            let tmp = (self.x + z2) * (self.x - z2);
+            w = tmp + tmp + tmp;
+        } else {
+            let x2 = self.x * self.x;
+            let z4  = z2 * z2;
+            w = x2 + x2 + x2 + (self.curve.A() * z4);
+        }
 
         let v2 = self.x.field.reduce(v.limbs << 1);
         let y84 = self.x.field.reduce(y4.limbs << 3);
@@ -362,10 +382,24 @@ impl<C: Curve<F>, F: Field> fmt::Show for JacobianPoint<C, F> {
     }
 }
 
+fn unserialize<C: Curve<F>, F: Field>(c: &C, s: &Vec<uint>) -> (FieldElem<F>, FieldElem<F>) {
+    let mut t = s.clone();
+    let sign = t.pop().unwrap();
+
+    let x = c.G().x.field.unserialize(&t);
+    let (y1, y2) = ((x * x * x) + (c.A() * x) + c.B()).sqrt();
+
+    if (sign == 0) ^ (y1.limbs < (y2).limbs) {
+        (x, y2)
+    } else {
+        (x, y1)
+    }
+}
 
 #[deriving(Clone)]
 pub struct C192<P192>;
 impl Curve<P192> for C192<P192> {
+    fn AN3(&self) -> bool { true }
     fn A(&self) -> FieldElem<P192> {
         -(FieldElem {
             limbs: 3i.to_biguint().unwrap(),
@@ -393,15 +427,64 @@ impl Curve<P192> for C192<P192> {
             curve: C192
         }
     }
+
+    fn unserialize(&self, s: &Vec<uint>) -> AffinePoint<C192<P192>, P192> {
+        let (x, y) = unserialize(self, s);
+
+        AffinePoint {
+            x: x,
+            y: y,
+            curve: self.clone()
+        }
+    }
 }
 
-impl C192<P192> {
-    pub fn base_point(&self) -> AffinePoint<C192<P192>, P192> { self.G() }
-}
+#[deriving(Clone)]
+pub struct C256<P256>;
+impl Curve<P256> for C256<P256> {
+    fn AN3(&self) -> bool { true }
+    fn A(&self) -> FieldElem<P256> {
+        -(FieldElem {
+            limbs: 3i.to_biguint().unwrap(),
+            field: P256
+        })
+    }
+
+    fn B(&self) -> FieldElem<P256> {
+        FieldElem {
+            limbs: FromStrRadix::from_str_radix("5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b", 16).unwrap(),
+            field: P256
+        }
+    }
+
+    fn G(&self) -> AffinePoint<C256<P256>, P256> {
+        AffinePoint {
+            x: FieldElem { // To do:  Implement FromStrRadix for FieldElem
+                limbs: FromStrRadix::from_str_radix("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296", 16).unwrap(),
+                field: P256
+            },
+            y: FieldElem {
+                limbs: FromStrRadix::from_str_radix("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5", 16).unwrap(),
+                field: P256
+            },
+            curve: C256
+        }
+    }
+
+    fn unserialize(&self, s: &Vec<uint>) -> AffinePoint<C256<P256>, P256> {
+        let (x, y) = unserialize(self, s);
+
+        AffinePoint {
+            x: x,
+            y: y,
+            curve: self.clone()
+        }
+    }}
 
 #[deriving(Clone)]
 pub struct C521<P521>;
 impl Curve<P521> for C521<P521> {
+    fn AN3(&self) -> bool { true }
     fn A(&self) -> FieldElem<P521> {
         -(FieldElem {
             limbs: 3i.to_biguint().unwrap(),
@@ -429,11 +512,16 @@ impl Curve<P521> for C521<P521> {
             curve: C521
         }
     }
-}
 
-impl C521<P521> {
-    pub fn base_point(&self) -> AffinePoint<C521<P521>, P521> { self.G() }
-}
+    fn unserialize(&self, s: &Vec<uint>) -> AffinePoint<C521<P521>, P521> {
+        let (x, y) = unserialize(self, s);
+
+        AffinePoint {
+            x: x,
+            y: y,
+            curve: self.clone()
+        }
+    }}
 
 // -------------------------------------------------------------------------
 // Unit Tests
@@ -447,23 +535,23 @@ mod tests {
     use num::{BigUint, One};
     use num::bigint::ToBigUint;
 
-    use fields::{FieldElem, P192, R192, P521};
-    use super::{AffinePoint, C192, C521};
+    use fields::{FieldElem, P192, R192, P256, P521};
+    use super::{AffinePoint, Curve, C192, C256, C521};
 
     #[test]
     fn accept_valid_point() {
         let c: C192<P192> = C192;
-        assert_eq!(c.base_point().is_valid(), true)
+        assert_eq!(c.G().is_valid(), true)
     }
 
     #[test]
     fn reject_invalid_point() {
         let c: C192<P192> = C192;
         let p = AffinePoint {
-            x: c.base_point().x,
+            x: c.G().x,
             y: FieldElem {
-                limbs: c.base_point().y.limbs + One::one(),
-                field: c.base_point().y.field
+                limbs: c.G().y.limbs + One::one(),
+                field: c.G().y.field
             },
             curve: c
         };
@@ -486,13 +574,13 @@ mod tests {
 
         let y = x.invert();
 
-        let a = x.limbs * c.base_point();
+        let a = x.limbs * c.G();
         let b = y.limbs * a;
 
         assert!(x != y);
         assert!((x * y) == one);
-        assert!(c.base_point() != a);
-        assert!(c.base_point() == b);
+        assert!(c.G() != a);
+        assert!(c.G() == b);
     }
 
     #[test]
@@ -503,42 +591,45 @@ mod tests {
 
         let c: C192<P192> = C192;
 
-        let a = sec * c.base_point();
+        let a = sec * c.G();
 
         assert_eq!(a.x.limbs, x);
         assert_eq!(a.y.limbs, y);
     }
 
     #[test]
-    fn jacobian_point_multiplication() {
+    fn jacobian_point_multiplication_c192() {
         let sec: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
         let x: BigUint = FromStrRadix::from_str_radix("48162eae1116dbbd5b7a0d9494ff0c9b414a31ce3d8b273f", 16).unwrap();
         let y: BigUint = FromStrRadix::from_str_radix("4c221e09f96b3229c95af490487612c8e3bd81704724eeda", 16).unwrap();
 
         let c: C192<P192> = C192;
 
-        let a = (sec * c.base_point().to_jacobian()).to_affine();
+        let a = (sec * c.G().to_jacobian()).to_affine();
 
         assert_eq!(a.x.limbs, x);
         assert_eq!(a.y.limbs, y);
     }
 
     #[test]
-    fn curve521() {
-        let sec: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
+    fn jacobian_point_multiplication_c256() {
+        let sec: BigUint = FromStrRadix::from_str_radix("26254a72f6a0ce35958ce62ff0cea754b84ac449b2b340383faef50606d03b01", 16).unwrap();
+        let x: BigUint = FromStrRadix::from_str_radix("6ee12372b80bad6f5432d0e6a3f02199db2b1617414f7fd8fe90b6bcf8b7aa68", 16).unwrap();
+        let y: BigUint = FromStrRadix::from_str_radix("5c71967784765fe888995bfd9a1fb76f329630018430e1d9aca7b59dc672cad8", 16).unwrap();
 
-        let c: C521<P521> = C521;
+        let c: C256<P256> = C256;
 
-        let a = (sec * c.base_point().to_jacobian()).to_affine();
+        let a = (sec * c.G().to_jacobian()).to_affine();
 
-        println!("{}", a)
+        assert_eq!(a.x.limbs, x);
+        assert_eq!(a.y.limbs, y);
     }
 
     #[bench]
     fn bench_point_mult_c192(b: &mut Bencher) {
         let c: C192<P192> = C192;
-        let sec: BigUint = FromStrRadix::from_str_radix("712627dcc76d4df2099af7c8e5", 16).unwrap();
-        let p = c.base_point().to_jacobian();
+        let sec: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
+        let p = c.G().to_jacobian();
 
         b.iter(|| { sec * p })
     }
@@ -546,8 +637,8 @@ mod tests {
     #[bench]
     fn bench_point_mult_c521(b: &mut Bencher) {
         let c: C521<P521> = C521;
-        let sec: BigUint = FromStrRadix::from_str_radix("712627dcc76d4df2099af7c8e5", 16).unwrap();
-        let p = c.base_point().to_jacobian();
+        let sec: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
+        let p = c.G().to_jacobian();
 
         b.iter(|| { sec * p })
     }

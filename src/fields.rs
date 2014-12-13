@@ -24,6 +24,7 @@ pub trait Field : Clone { // To do:  Implement binary fields.
     fn modulus(&self) -> BigUint;
     fn reduce(&self, z: BigUint) -> FieldElem<Self>;
     fn negate(&self, z: &FieldElem<Self>) -> FieldElem<Self>;
+    fn unserialize(&self, s: &Vec<uint>) -> FieldElem<Self>;
 }
 
 #[deriving(Clone)]
@@ -71,6 +72,18 @@ impl<F: Field> Neg<FieldElem<F>> for FieldElem<F> {
 }
 
 impl<F: Field> FieldElem<F> {
+    pub fn serialize(&self) -> Vec<uint> {
+        let mask = 255u.to_biguint().unwrap();
+        let m = self.field.modulus().bits() / 8;
+        let mut out: Vec<uint> = Vec::new();
+
+        for i in range(0, m) {
+            out.push(((self.limbs >> ((m - i - 1) * 8)) & mask).to_uint().unwrap())
+        }
+
+        out
+    }
+
     pub fn pow(&self, exp: &BigUint) -> FieldElem<F> {
         // Montgomery Ladder.
         let zer: BigUint = Zero::zero();
@@ -91,6 +104,13 @@ impl<F: Field> FieldElem<F> {
         }
 
         r0
+    }
+
+    pub fn sqrt(&self) -> (FieldElem<F>, FieldElem<F>) {
+        let exp = (self.field.modulus() + One::one()) >> 2;
+        let out = self.pow(&exp);
+
+        (out.clone(), -out)
     }
 
     pub fn invert(&self) -> FieldElem<F> {
@@ -138,6 +158,15 @@ impl<F: Field> fmt::Show for FieldElem<F> {
     }
 }
 
+fn unserialize(s: &Vec<uint>) -> BigUint {
+    let mut out: BigUint = Zero::zero();
+
+    for x in s.iter() {
+        out = (out << 8) ^ (x.to_biguint().unwrap())
+    }
+
+    out
+}
 
 // -------------------------------------------------------------------------
 // Implementations of specific fields.
@@ -146,18 +175,33 @@ impl<F: Field> fmt::Show for FieldElem<F> {
 pub struct P192;
 impl Field for P192 {
     fn modulus(&self) -> BigUint {
-        FromStrRadix::from_str_radix("6277101735386680763835789423207666416083908700390324961279", 10).unwrap()
+        let one: BigUint = One::one();
+
+        (one << 192) - (one << 64) - one
     }
 
     fn reduce(&self, z: BigUint) -> FieldElem<P192> {
-        FieldElem {
-            limbs: z % self.modulus(),
-            field: P192
+        if z.bits() > 192 {
+            let u = z >> 192;
+            let v = z ^ (u << 192);
+
+            self.reduce((u << 64) + u + v)
+        } else if z.bits() == 192 {
+            let m = self.modulus();
+
+            if z > m { self.reduce(z - m) }
+            else { FieldElem { limbs: z, field: P192 } }
+        } else {
+            FieldElem { limbs: z, field: P192 }
         }
     }
 
     fn negate(&self, z: &FieldElem<P192>) -> FieldElem<P192> {
         self.reduce(self.modulus() - self.reduce(z.limbs.clone()).limbs)
+    }
+
+    fn unserialize(&self, s: &Vec<uint>) -> FieldElem<P192> {
+        self.reduce(unserialize(s))
     }
 }
 
@@ -174,6 +218,59 @@ impl Field for R192 {
 
     fn negate(&self, z: &FieldElem<R192>) -> FieldElem<R192> {
         self.reduce(self.modulus() - self.reduce(z.limbs.clone()).limbs)
+    }
+
+    fn unserialize(&self, s: &Vec<uint>) -> FieldElem<R192> {
+        self.reduce(unserialize(s))
+    }
+}
+
+#[deriving(Clone)]
+pub struct P256;
+impl Field for P256 {
+    fn modulus(&self) -> BigUint {
+        let one: BigUint = One::one();
+
+        (one << 256) - (one << 224) + (one << 192) + (one << 96) - one
+    }
+
+    fn reduce(&self, z: BigUint) -> FieldElem<P256> {
+        if z.bits() > 256 {
+            let u = z >> 256;
+            let v = z ^ (u << 256);
+
+            self.reduce((u << 224) - (u << 192) - (u << 96) + u + v)
+        } else {
+            FieldElem { limbs: z, field: P256 }
+        }
+    }
+
+    fn negate(&self, z: &FieldElem<P256>) -> FieldElem<P256> {
+        self.reduce(self.modulus() - self.reduce(z.limbs.clone()).limbs)
+    }
+
+    fn unserialize(&self, s: &Vec<uint>) -> FieldElem<P256> {
+        self.reduce(unserialize(s))
+    }
+}
+
+#[deriving(Clone)]
+pub struct R256;
+impl Field for R256 {
+    fn modulus(&self) -> BigUint {
+        FromStrRadix::from_str_radix("115792089210356248762697446949407573529996955224135760342422259061068512044369", 10).unwrap()
+    }
+
+    fn reduce(&self, z: BigUint) -> FieldElem<R256> {
+        FieldElem { limbs: z % self.modulus(), field: R256 }
+    }
+
+    fn negate(&self, z: &FieldElem<R256>) -> FieldElem<R256> {
+        self.reduce(self.modulus() - self.reduce(z.limbs.clone()).limbs)
+    }
+
+    fn unserialize(&self, s: &Vec<uint>) -> FieldElem<R256> {
+        self.reduce(unserialize(s))
     }
 }
 
@@ -193,15 +290,16 @@ impl Field for P521 {
 
             self.reduce(u + v)
         } else {
-            FieldElem {
-                limbs: z,
-                field: P521
-            }
+            FieldElem { limbs: z, field: P521 }
         }
     }
 
     fn negate(&self, z: &FieldElem<P521>) -> FieldElem<P521> {
         self.reduce(self.modulus() ^ self.reduce(z.limbs.clone()).limbs)
+    }
+
+    fn unserialize(&self, s: &Vec<uint>) -> FieldElem<P521> {
+        self.reduce(unserialize(s))
     }
 }
 
@@ -218,6 +316,10 @@ impl Field for R521 {
 
     fn negate(&self, z: &FieldElem<R521>) -> FieldElem<R521> {
         self.reduce(self.modulus() - self.reduce(z.limbs.clone()).limbs)
+    }
+
+    fn unserialize(&self, s: &Vec<uint>) -> FieldElem<R521> {
+        self.reduce(unserialize(s))
     }
 }
 
@@ -249,7 +351,7 @@ mod tests {
     #[bench]
     fn bench_exponentiation_p192(b: &mut Bencher) {
         let p = FieldElem {
-            limbs: 3i.to_biguint().unwrap(),
+            limbs: FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap(),
             field: P192
         };
         let exp = 3000i.to_biguint().unwrap();
@@ -260,7 +362,7 @@ mod tests {
      #[bench]
      fn bench_exponentiation_p521(b: &mut Bencher) {
          let p = FieldElem {
-             limbs: 3i.to_biguint().unwrap(),
+             limbs: FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap(),
              field: P521
          };
          let exp = 3000i.to_biguint().unwrap();
