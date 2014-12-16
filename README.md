@@ -23,22 +23,28 @@ Currently the only high-level operation implemented is Diffie-Hellman key exchan
 ```rust
 extern crate ecc;
 
-use ecc::fields::P256; // NIST's field for P-256
+use ecc::fields::{P256, R256}; // NIST's fields for P-256
 use ecc::curves::C256; // NIST's curve P-256
 use ecc::crypto::DiffieHellman;
 
 fn main() {
-  let c: C256<P256> = C256;
-  let (X, x) = DiffieHellman::key_gen(&c);
-  // X: Vec<uint>  -> Send to the other person.
+  type Curve = C192<P192, R192>;
+  type Point = AffinePoint<Curve, P192, R192>;
+
+  let (X, x): (Point, _) = DiffieHellman::key_gen();
+  let out = X.serialize();
+  // out: Vec<uint>  -> Send to the other person.
   // x: BigUint    -> Kept secret.
 
   // X             -----> Other person
   // Y: Vec<uint>  <-----
 
-  let s: Option<Vec<uint>> = DiffieHellman::shared(&c, &x, &Y);
+  let c: Curve = C192;
+  let in = c.unserialize(Y);
+
+  let s: Option<Point> = DiffieHellman::shared(&c, &x, &in);
   // Will return None if trickery occured.
-  // Will return the shared secret Some([...]), which should be
+  // Will return the shared secret Some(...), which should be serialized and
   // put through a KDF or something and then used in a cipher/MAC.
 }
 ```
@@ -62,10 +68,8 @@ use ecc::fields::{FieldElem, P192};
 
 ...
 
-let x = FieldElem {
-  limbs: 3i.to_biguint().unwrap(), // Or any other BigUint
-  field: P192
-}
+let x: FieldElem<P192> = FieldElem { limbs: 3i.to_biguint().unwrap() }
+// Or any other BigUint in the `limbs` field.
 ```
 
 Field operations can be applied to field elements with the normal unary/binary operators (negation, addition, subtraction, multiplication, and division).  Calling `x.invert()` will return `x`'s inverse, and calling `x.pow(exp)`, where `exp` is a `BigUint`, will raise `x` to the power of `exp`.
@@ -83,7 +87,7 @@ There are currently only three NIST curves implemented:  `C192`, `C256`, and `C5
 
 Creating a curve is similar to creating a field:
 ```rust
-let c: C192<P192> = C192;
+let c: C192<P192, R192> = C192;
 ```
 
 Calling `c.G()` will return the curve's base point in affine coordinates.  Calling `.to_jacobian()` will convert it to Jacobian coordinates, and alternately, calling `.to_affine()` on a Jacobian point will convert it back to affine.
@@ -98,11 +102,11 @@ Point multiplication and testing for equality is constant-time, by default.
 extern crate num;
 
 use std::num::FromStrRadix;
-use fields::P192;
+use fields::{P192, R192};
 use curves::{Curve, C192};
 
 fn main() {
-  let curve C192<P192> = C192;
+  let curve C192<P192, R192> = C192;
   let a: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
   let G = curve.G().to_jacobian();
 
