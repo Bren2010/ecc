@@ -12,9 +12,8 @@ version = "*"
 The obligatory calling-my-code-terrible-and-warning-you-to-use-it-at-your-own-peril paragraph:  I've attempted to prevent any timing or invalid curve attacks, but this is the first thing I've ever written in Rust and I'm also probably the only person who's ever read the code.  There are tests that say the code is correct and benchmarks that say it's not horrendously slow, but I don't know if I believe either of them myself.  This is all a work-in-progress.
 
 ### To Do:
-1.  Support mixed addition of points.
-2.  ElGamal encryption
-3.  ECDSA / ElGamal signatures
+1.  ElGamal encryption
+2.  ECDSA / ElGamal signatures
 
 
 Basics
@@ -33,13 +32,13 @@ fn main() {
   let (X, x) = DiffieHellman::key_gen(&c);
   // X: Vec<uint>  -> Send to the other person.
   // x: BigUint    -> Kept secret.
-  
+
   // X             -----> Other person
   // Y: Vec<uint>  <-----
-  
+
   let s: Option<Vec<uint>> = DiffieHellman::shared(&c, &x, &Y);
   // Will return None if trickery occured.
-  // Will return the shared secret Some([...]), which should be 
+  // Will return the shared secret Some([...]), which should be
   // put through a KDF or something and then used in a cipher/MAC.
 }
 ```
@@ -106,7 +105,7 @@ fn main() {
   let curve C192<P192> = C192;
   let a: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
   let G = curve.G().to_jacobian();
-  
+
   let A = a * G;
 }
 ```

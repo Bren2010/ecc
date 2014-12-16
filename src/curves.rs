@@ -97,7 +97,7 @@ impl<C: Curve<F>, F: Field> Add<JacobianPoint<C, F>, JacobianPoint<C, F>> for Ja
         } else if (*other).is_zero() {
             (*self).clone()
         } else if self.x == other.x && self.y == other.y && self.z == other.z {
-            return self.double();
+            self.double()
         } else {
             let z12 = self.z * self.z;
             let z13 = z12 * self.z;
@@ -111,9 +111,9 @@ impl<C: Curve<F>, F: Field> Add<JacobianPoint<C, F>, JacobianPoint<C, F>> for Ja
 
             if u1 == u2 {
                 if s1 != s2 { // P1 = +/- P2
-                    return self.zero();
+                    self.zero()
                 } else {
-                    return self.double();
+                    self.double()
                 }
             } else {
                 let h = u2 - u1;
@@ -127,7 +127,7 @@ impl<C: Curve<F>, F: Field> Add<JacobianPoint<C, F>, JacobianPoint<C, F>> for Ja
                 let y3 = r * (u1h2 - x3) - (s1 * h3);
                 let z3 = h * self.z * other.z;
 
-                return JacobianPoint {
+                JacobianPoint {
                     x: x3,
                     y: y3,
                     z: z3,
@@ -138,12 +138,61 @@ impl<C: Curve<F>, F: Field> Add<JacobianPoint<C, F>, JacobianPoint<C, F>> for Ja
     }
 }
 
+fn addJacobianAndAffine<C: Curve<F>, F: Field>(this: &JacobianPoint<C, F>, other: &AffinePoint<C, F>) -> JacobianPoint<C, F> {
+    if this.is_zero() {
+        (*other).to_jacobian()
+    } else if other.is_zero() {
+        (*this).clone()
+    } else {
+        let z2 = this.z * this.z;
+        let c = (other.x * z2) - this.x;
+
+        if c.is_zero() {
+            if (other.y * z2 * this.z) == this.y { // Same point
+                this.double()
+            } else { // Negatives
+                this.zero()
+            }
+        } else {
+            let d = (other.y * z2 * this.z) - this.y;
+            let c2 = c * c;
+
+            let x3 = (d * d) - (c2 * c) - (c2 * (this.x + this.x));
+            let y3 = d * ((this.x * c2) - x3) - (this.y * c2 * c);
+            let z3 = this.z * c;
+
+            JacobianPoint {
+                x: x3,
+                y: y3,
+                z: z3,
+                curve: this.curve.clone()
+            }
+        }
+    }
+}
+
+impl<C: Curve<F>, F: Field> Add<JacobianPoint<C, F>, JacobianPoint<C, F>> for AffinePoint<C, F> {
+    fn add(&self, other: &JacobianPoint<C, F>) -> JacobianPoint<C, F> { addJacobianAndAffine(other, self) }
+}
+
+impl<C: Curve<F>, F: Field> Add<AffinePoint<C, F>, JacobianPoint<C, F>> for JacobianPoint<C, F> {
+    fn add(&self, other: &AffinePoint<C, F>) -> JacobianPoint<C, F> { addJacobianAndAffine(self, other) }
+}
+
 impl<C: Curve<F>, F: Field> Sub<AffinePoint<C, F>, AffinePoint<C, F>> for AffinePoint<C, F> {
     fn sub(&self, other: &AffinePoint<C, F>) -> AffinePoint<C, F> { *self + (-*other) }
 }
 
+impl<C: Curve<F>, F: Field> Sub<JacobianPoint<C, F>, JacobianPoint<C, F>> for AffinePoint<C, F> {
+    fn sub(&self, other: &JacobianPoint<C, F>) -> JacobianPoint<C, F> { *self + (-*other) }
+}
+
 impl<C: Curve<F>, F: Field> Sub<JacobianPoint<C, F>, JacobianPoint<C, F>> for JacobianPoint<C, F> {
     fn sub(&self, other: &JacobianPoint<C, F>) -> JacobianPoint<C, F> { *self + (-*other) }
+}
+
+impl<C: Curve<F>, F: Field> Sub<AffinePoint<C, F>, JacobianPoint<C, F>> for JacobianPoint<C, F> {
+    fn sub(&self, other: &AffinePoint<C, F>) -> JacobianPoint<C, F> { *self + (-*other) }
 }
 
 impl<C: Curve<F>, F:Field> Mul<BigUint, AffinePoint<C, F>> for AffinePoint<C, F> {
@@ -612,6 +661,18 @@ mod tests {
     }
 
     #[test]
+    fn mixed_point_addition_c192() {
+        let c: C192<P192> = C192;
+
+        let a = c.G().to_jacobian().double() + c.G();
+        let b = c.G() + c.G().to_jacobian().double();
+        let c = c.G().to_jacobian().double() + c.G().to_jacobian();
+
+        assert_eq!(a, c);
+        assert_eq!(b, c);
+    }
+
+    #[test]
     fn jacobian_point_multiplication_c256() {
         let sec: BigUint = FromStrRadix::from_str_radix("26254a72f6a0ce35958ce62ff0cea754b84ac449b2b340383faef50606d03b01", 16).unwrap();
         let x: BigUint = FromStrRadix::from_str_radix("6ee12372b80bad6f5432d0e6a3f02199db2b1617414f7fd8fe90b6bcf8b7aa68", 16).unwrap();
@@ -629,6 +690,15 @@ mod tests {
     fn bench_point_mult_c192(b: &mut Bencher) {
         let c: C192<P192> = C192;
         let sec: BigUint = FromStrRadix::from_str_radix("7e48c5ab7f43e4d9c17bd9712627dcc76d4df2099af7c8e5", 16).unwrap();
+        let p = c.G().to_jacobian();
+
+        b.iter(|| { sec * p })
+    }
+
+    #[bench]
+    fn bench_point_mult_c192_zeroes(b: &mut Bencher) {
+        let c: C192<P192> = C192;
+        let sec: BigUint = FromStrRadix::from_str_radix("7e0000000000000000000000000000000000000000000000", 16).unwrap();
         let p = c.G().to_jacobian();
 
         b.iter(|| { sec * p })
