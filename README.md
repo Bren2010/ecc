@@ -42,7 +42,7 @@ fn main() {
   let c: Curve = C192;
   let in = c.unserialize(Y);
 
-  let s: Option<Point> = DiffieHellman::shared(&c, &x, &in);
+  let s: Option<Point> = DiffieHellman::shared(&x, &in);
   // Will return None if trickery occured.
   // Will return the shared secret Some(...), which should be serialized and
   // put through a KDF or something and then used in a cipher/MAC.
