@@ -1,7 +1,7 @@
 use std::rand;
 use std::default::Default;
 
-use num::BigUint;
+use num::{BigUint, Zero};
 use num::bigint::RandBigInt;
 
 use fields::Field;

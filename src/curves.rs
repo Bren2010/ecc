@@ -31,6 +31,31 @@ pub struct JacobianPoint<C: Curve<F, G>, F: Field, G: Field> {
     pub z: FieldElem<F>,
 }
 
+// Constant-time exponentiation/scalar-multiplication.
+fn pow<T: Zero + Add<T, T> + Clone>(this: &T, cand_exp: &BigUint, order: &BigUint) -> T {
+    // Montgomery Ladder.
+    let zer: BigUint = Zero::zero();
+    let one: BigUint = One::one();
+    let mut exp: BigUint = *cand_exp + *order;
+
+    if exp.bits() == order.bits() { exp = exp + *order; }
+
+    let m = exp.bits() + 1;
+    let mut r0: T = Zero::zero();
+    let mut r1: T = (*this).clone();
+
+    for i in range(0u, m) {
+        if ((one << (m - i - 1)) & exp) == zer {
+            r1 = r0 + r1;
+            r0 = r0 + r0;
+        } else {
+            r0 = r0 + r1;
+            r1 = r1 + r1;
+        }
+    }
+
+    r0
+}
 
 impl<C: Curve<F, G>, F: Field, G: Field> PartialEq for AffinePoint<C, F, G> {
     fn eq(&self, other: &AffinePoint<C, F, G>) -> bool {
@@ -60,7 +85,7 @@ impl<C: Curve<F, G>, F: Field, G: Field> Add<AffinePoint<C, F, G>, AffinePoint<C
 
             AffinePoint { x: x3, y: y3 }
         } else if self.y != other.y || self.y.limbs.bits() == 0 {
-            self.zero()
+            Zero::zero()
         } else {
             let c: C = Default::default();
             let two: FieldElem<F> = FieldElem {
@@ -101,7 +126,7 @@ impl<C: Curve<F, G>, F: Field, G: Field> Add<JacobianPoint<C, F, G>, JacobianPoi
 
             if u1 == u2 {
                 if s1 != s2 { // P1 = +/- P2
-                    self.zero()
+                    Zero::zero()
                 } else {
                     self.double()
                 }
@@ -136,7 +161,7 @@ fn add_jacobian_to_affine<C: Curve<F, G>, F: Field, G: Field>(this: &JacobianPoi
             if (other.y * z2 * this.z) == this.y { // Same point
                 this.double()
             } else { // Negatives
-                this.zero()
+                Zero::zero()
             }
         } else {
             let d = (other.y * z2 * this.z) - this.y;
@@ -219,6 +244,22 @@ impl<C: Curve<F, G>, F: Field, G: Field> Neg<JacobianPoint<C, F, G>> for Jacobia
     }
 }
 
+impl<C: Curve<F, G>, F: Field, G: Field> Zero for AffinePoint<C, F, G> {
+    fn zero() -> AffinePoint<C, F, G> {
+        AffinePoint { x: Zero::zero(), y: Zero::zero() }
+    }
+
+    fn is_zero(&self) -> bool { self.x.is_zero() && self.y.is_zero() }
+}
+
+impl<C: Curve<F, G>, F: Field, G: Field> Zero for JacobianPoint<C, F, G> {
+    fn zero() -> JacobianPoint<C, F, G> {
+        JacobianPoint { x: One::one(), y: One::one(), z: Zero::zero() }
+    }
+
+    fn is_zero(&self) -> bool { self.z.is_zero() }
+}
+
 impl<C: Curve<F, G>, F: Field, G: Field> AffinePoint<C, F, G> {
     pub fn is_valid(&self) -> bool {
         if self.is_zero() {
@@ -242,50 +283,23 @@ impl<C: Curve<F, G>, F: Field, G: Field> AffinePoint<C, F, G> {
     }
 
     fn pow(&self, exp: &BigUint) -> AffinePoint<C, F, G> {
-        // Montgomery Ladder.
-        let zer: BigUint = Zero::zero();
-        let one: BigUint = One::one();
-
-        let m = exp.bits() + 1;
-        let mut r0 = self.zero();
-        let mut r1 = (*self).clone();
-
-        for i in range(0u, m) {
-            if ((one << (m - i - 1)) & *exp) == zer {
-                r1 = r0 + r1;
-                r0 = r0 + r0;
-            } else {
-                r0 = r0 + r1;
-                r1 = r1 + r1;
-            }
-        }
-
-        r0
+        let g: G = Default::default();
+        pow(self, exp, &g.modulus())
     }
 
     pub fn to_jacobian(&self) -> JacobianPoint<C, F, G> {
         let p = JacobianPoint {
             x: self.x.clone(),
             y: self.y.clone(),
-            z: self.x.one()
+            z: One::one()
         };
 
         if self.is_zero() {
-            p.zero() // Jacobian 0 != (0 : 0 : 1)
+            Zero::zero()
         } else {
             p
         }
     }
-
-    // To do:  Find a way to actually implement Zero instead of mimic it.
-    pub fn zero(&self) -> AffinePoint<C, F, G> {
-        AffinePoint {
-            x: self.x.zero(),
-            y: self.y.zero()
-        }
-    }
-
-    pub fn is_zero(&self) -> bool { self.x.is_zero() && self.y.is_zero() }
 }
 
 impl<C: Curve<F, G>, F: Field, G: Field> JacobianPoint<C, F, G> {
@@ -305,25 +319,8 @@ impl<C: Curve<F, G>, F: Field, G: Field> JacobianPoint<C, F, G> {
     }
 
     fn pow(&self, exp: &BigUint) -> JacobianPoint<C, F, G> { // Replace with generic
-        // Montgomery Ladder.
-        let zer: BigUint = Zero::zero();
-        let one: BigUint = One::one();
-
-        let m = exp.bits() + 1;
-        let mut r0 = self.zero();
-        let mut r1 = (*self).clone();
-
-        for i in range(0u, m) {
-            if ((one << (m - i - 1)) & *exp) == zer {
-                r1 = r0 + r1;
-                r0 = r0 + r0;
-            } else {
-                r0 = r0 + r1;
-                r1 = r1 + r1;
-            }
-        }
-
-        r0
+        let g: G = Default::default();
+        pow(self, exp, &g.modulus())
     }
 
     pub fn double(&self) -> JacobianPoint<C, F, G> {
@@ -362,9 +359,7 @@ impl<C: Curve<F, G>, F: Field, G: Field> JacobianPoint<C, F, G> {
 
     pub fn to_affine(&self) -> AffinePoint<C, F, G> {
         if self.is_zero() {
-            let p = AffinePoint { x: self.x.zero(), y: self.y.zero() };
-
-            p.zero() // In the event that affine zero isn't (0, 0)
+            Zero::zero()
         } else {
             let zinv = self.z.invert();
 
@@ -374,13 +369,6 @@ impl<C: Curve<F, G>, F: Field, G: Field> JacobianPoint<C, F, G> {
             }
         }
     }
-
-    // To do:  Find a way to actually implement Zero instead of mimic it.
-    pub fn zero(&self) -> JacobianPoint<C, F, G> {
-        JacobianPoint { x: self.x.one(), y: self.y.one(), z: self.z.zero() }
-    }
-
-    pub fn is_zero(&self) -> bool { self.z.is_zero() }
 }
 
 impl<C: Curve<F, G>, F: Field, G: Field> fmt::Show for AffinePoint<C, F, G> {
@@ -625,9 +613,18 @@ mod tests {
     }
 
     #[bench]
-    fn bench_point_mult_c192_zeroes(b: &mut Bencher) {
+    fn bench_point_mult_c192_right_zeroes(b: &mut Bencher) {
         let c: C192<P192, R192> = C192;
         let sec: BigUint = FromStrRadix::from_str_radix("7e0000000000000000000000000000000000000000000000", 16).unwrap();
+        let p = c.G().to_jacobian();
+
+        b.iter(|| { sec * p })
+    }
+
+    #[bench]
+    fn bench_point_mult_c192_left_zeroes(b: &mut Bencher) {
+        let c: C192<P192, R192> = C192;
+        let sec: BigUint = 3i.to_biguint().unwrap();
         let p = c.G().to_jacobian();
 
         b.iter(|| { sec * p })

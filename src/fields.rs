@@ -78,6 +78,22 @@ impl<F: Field> Neg<FieldElem<F>> for FieldElem<F> {
     }
 }
 
+impl<F: Field> Zero for FieldElem<F> {
+    fn zero() -> FieldElem<F> {
+        let f: F = Default::default();
+        f.reduce(0i.to_biguint().unwrap())
+    }
+
+    fn is_zero(&self) -> bool { self.limbs.is_zero() }
+}
+
+impl<F: Field> One for FieldElem<F> {
+    fn one() -> FieldElem<F> {
+        let f: F = Default::default();
+        f.reduce(1i.to_biguint().unwrap())
+    }
+}
+
 impl<F: Field> FieldElem<F> {
     pub fn serialize(&self) -> Vec<uint> {
         let f: F = Default::default();
@@ -92,18 +108,23 @@ impl<F: Field> FieldElem<F> {
         out
     }
 
-    pub fn pow(&self, exp: &BigUint) -> FieldElem<F> {
+    pub fn pow(&self, cand_exp: &BigUint) -> FieldElem<F> {
         // Montgomery Ladder.
         let zer: BigUint = Zero::zero();
         let one: BigUint = One::one();
         let f: F = Default::default();
+
+        let order: BigUint = f.modulus() - One::one();
+        let mut exp: BigUint = *cand_exp + order;
+
+        if exp.bits() == order.bits() { exp = exp + order; }
 
         let m = exp.bits() + 1;
         let mut r0 = f.reduce(one.clone());
         let mut r1 = (*self).clone();
 
         for i in range(0u, m) {
-            if ((one << (m - i - 1)) & *exp) == zer {
+            if ((one << (m - i - 1)) & exp) == zer {
                 r1 = r0 * r1;
                 r0 = r0 * r0;
             } else {
@@ -157,19 +178,6 @@ impl<F: Field> FieldElem<F> {
 
         f.reduce(b)
     }
-
-    // To do:  Find a way to actually implement Zero and One instead of mimic it.
-    pub fn zero(&self) -> FieldElem<F> {
-        let f: F = Default::default();
-        f.reduce(0i.to_biguint().unwrap())
-    }
-
-    pub fn one(&self) -> FieldElem<F> {
-        let f: F = Default::default();
-        f.reduce(1i.to_biguint().unwrap())
-    }
-
-    pub fn is_zero(&self) -> bool { self.limbs.is_zero() }
 }
 
 impl<F: Field> fmt::Show for FieldElem<F> {
@@ -370,9 +378,19 @@ mod tests {
     }
 
     #[bench]
-    fn bench_exponentiation_p192_zeroes(b: &mut Bencher) {
+    fn bench_exponentiation_p192_right_zeroes(b: &mut Bencher) {
         let p: FieldElem<P192> = FieldElem {
             limbs: FromStrRadix::from_str_radix("7e0000000000000000000000000000000000000000000000", 16).unwrap()
+        };
+        let exp = 3000i.to_biguint().unwrap();
+
+        b.iter(|| { p.pow(&exp) })
+    }
+
+    #[bench]
+    fn bench_exponentiation_p192_left_zeroes(b: &mut Bencher) {
+        let p: FieldElem<P192> = FieldElem {
+            limbs: 3i.to_biguint().unwrap()
         };
         let exp = 3000i.to_biguint().unwrap();
 
