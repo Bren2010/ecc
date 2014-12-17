@@ -34,7 +34,7 @@ fn main() {
   let (X, x): (Point, _) = DiffieHellman::key_gen();
   let out = X.serialize();
   // out: Vec<uint>  -> Send to the other person.
-  // x: BigUint    -> Kept secret.
+  // x: BigUint      -> Kept secret.
 
   // X             -----> Other person
   // Y: Vec<uint>  <-----
